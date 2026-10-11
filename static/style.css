@@ -103,7 +103,6 @@ h3 { font-size: 20px; }
 .hero h1 { font-size: clamp(54px, 10vw, 128px); line-height: .92; letter-spacing: -0.045em; margin-bottom: 24px; }
 .hero h1 em { font-style: italic; font-weight: 400; color: var(--navy); }
 .hero .lede { max-width: 44ch; text-shadow: 0 0 18px var(--bg), 0 0 6px var(--bg); }
-.hero-cta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
 
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 11px 18px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: 500 15px var(--sans); text-decoration: none; cursor: pointer; transition: transform .15s, box-shadow .15s, background .15s; }
 .btn:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
