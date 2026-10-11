@@ -101,7 +101,8 @@
       const up = evs.filter((e) => e.at > now).sort((a, b) => a.at - b.at).slice(0, 4);
       nd.innerHTML = `<p class="kicker">Coming up</p>` + (up.length
         ? `<ul class="due-list">${up.map((e) => {
-            const name = `<b>${e.i.short}</b> ${e.i.title.split(": ").slice(-1)[0]}`;
+            const rest = e.i.title.split(": ").slice(-1)[0];
+            const name = rest.toLowerCase().includes(e.i.short.toLowerCase()) ? `<b>${rest}</b>` : `<b>${e.i.short}</b> ${rest}`;
             const tag = `<span class="ev-type" style="background:color-mix(in srgb, var(--${e.verb === "Due" ? "coral" : "teal"}) 18%, transparent);color:var(--${e.verb === "Due" ? "coral" : "teal"})">${e.verb}</span>`;
             const label = e.i.url && e.verb === "Due" ? `<a href="${e.i.url}">${name}</a>` : `<span class="t">${name}</span>`;
             return `<li>${tag}${label}<span class="rel">${fmtDay(e.at)}</span></li>`;
