@@ -71,7 +71,7 @@
   }
 
   // ───── Hero: one network, and a story that plays out in it ─────
-  // People talk; a troll hands someone a misleading news story and it spreads; people take sides, argue, cut ties,
+  // People talk; a divisive news story arrives and spreads; people take sides, argue, cut ties,
   // split into two camps; a flame war breaks out across the gap until moderators
   // step in; the camps go quiet; then someone reaches across and the network
   // slowly comes back together, and a couple of AI bots join. Then it repeats.
@@ -83,7 +83,7 @@
     const HAIR = ["#2B1D14", "#5A3825", "#B98A5E", "#16161A", "#7C7C84", "#8A2F1F"];
     const ACTS = [
       { at: 0 },   // people talk, joke, and share
-      { at: 8 },   // a troll hands someone a misleading news story; it spreads
+      { at: 8 },   // a divisive news story arrives and spreads
       { at: 13 },  // people take sides; arguments break out
       { at: 19 },  // ties across the divide are cut
       { at: 23 },  // each side clusters with people who agree
@@ -98,7 +98,7 @@
     const hex = (c) => { c = c.trim().replace("#", ""); if (c.length === 3) c = [...c].map((x) => x + x).join("");
       const n = parseInt(c, 16); return isNaN(n) ? [120, 120, 120] : [n >> 16, (n >> 8) & 255, n & 255]; };
     const mix = (a, b, t) => `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(",")})`;
-    let W, H, DPR, people = [], ties = [], bits = [], mouse = null, colors, clock = 0, last = null, act = -1, devil = null, bridger = null, flamers = [], shots = [], mods = [], botsAdded = false;
+    let W, H, DPR, people = [], ties = [], bits = [], mouse = null, colors, clock = 0, last = null, act = -1, news = null, bridger = null, flamers = [], shots = [], mods = [], botsAdded = false;
 
     const readColors = () => {
       const cs = getComputedStyle(root), v = (n) => cs.getPropertyValue(n).trim();
@@ -175,20 +175,20 @@
       const g = geo();
       if (n === 0) {
         people.forEach((p) => { p.side = 0; p.heard = false; p.hx = g.c[0] + p.ox; p.hy = g.c[1] + p.oy; });
-        bridger = null; devil = null; flamers = []; shots = []; mods = []; botsAdded = false;
+        bridger = null; news = null; flamers = []; shots = []; mods = []; botsAdded = false;
       }
       if (n === 1) {
         // sides follow where people sit, with some noise: neighbours tend to agree
-        people.forEach((p) => { p.side = (g.A[0] === g.B[0] ? p.oy : p.ox) + (Math.random() - 0.5) * g.R * 0.8 < 0 ? -1 : 1; });
+        people.forEach((p) => { p.side = p.ox / g.sx + (Math.random() - 0.5) * g.R * 1.3 < 0 ? -1 : 1; });
         const first = people.reduce((m, p) => (Math.abs(p.ox) + Math.abs(p.oy) < Math.abs(m.ox) + Math.abs(m.oy) ? p : m));
-        // a troll walks in carrying a misleading news story and hands it to someone
-        const believers = people.filter((p) => p.side > 0);
-        const target = believers.reduce((m, p) => (Math.hypot(p.ox, p.oy) < Math.hypot(m.ox, m.oy) ? p : m), believers[0] || first);
-        devil = { x: W + 30, y: target.y, vx: 0, vy: 0, s: 5.6, hx: target.x + 26, hy: target.y, target, whispered: false, mood: null, act: 0 };
+        // the news story drops in next to someone near the middle of the network
+        const target = people.filter((p) => !p.bot).reduce((m, p) => (Math.hypot(p.ox, p.oy) < Math.hypot(m.ox, m.oy) ? p : m));
+        news = { x: W + 40, y: target.y - 70, tx: target.x + 34, ty: target.y - 6, target, t: clock, arrived: null };
       }
       if (n === 3) {
         let k = 0;
-        ties.forEach((t) => { if (!t.cut && people[t.a].side !== people[t.b].side) t.cut = clock + 0.3 + Math.min(3.2, 0.22 * k++); });
+        // they break in quick waves, three or four at a time
+        ties.forEach((t) => { if (!t.cut && people[t.a].side !== people[t.b].side) { t.cut = clock + 0.3 + Math.floor(k / 3.5) * 0.7 + Math.random() * 0.15; k++; } });
       }
       if (n === 4) {
         people.forEach((p) => {
@@ -201,7 +201,6 @@
           if (Math.random() < 0.7) addTie(p.i, pick(same).i, clock + Math.random() * 3);
         });
       }
-      if (n === 2 && devil) { devil.hx = W + 60; }   // the troll slips away once the damage is done
       if (n === 5) {
         // the people at each camp's edge step toward the gap and start hurling insults
         const gapX = (g.A[0] + g.B[0]) / 2;
@@ -256,18 +255,14 @@
         p.op += (target - p.op) * (act === 9 ? 0.012 : 0.03);
       });
 
-      // the troll hands the story to one person; it spreads along ties
+      // the story reaches one person, then spreads along ties
       const hears = (p, k = 0.9) => { p.heard = true; say(p, "📰", k); };
-      if (devil) {
-        devil.vx += (devil.hx - devil.x) * 0.004; devil.vy += (devil.hy - devil.y) * 0.004;
-        devil.vx *= 0.88; devil.vy *= 0.88; devil.x += devil.vx; devil.y += devil.vy;
-        devil.act *= 0.99; if (devil.act < 0.05) devil.mood = null;
-        if (!devil.whispered && Math.hypot(devil.x - devil.hx, devil.y - devil.hy) < 6) {
-          devil.whispered = true; devil.handed = clock; say(devil, "😈"); hears(devil.target, 1);
-        }
-        if (devil.x > W + 50 && act >= 2) devil = null;
+      if (news) {
+        news.x += (news.tx - news.x) * 0.07; news.y += (news.ty - news.y) * 0.07;
+        if (!news.arrived && Math.hypot(news.x - news.tx, news.y - news.ty) < 4) { news.arrived = clock; hears(news.target, 1); }
+        if (act >= 2) news = null;
       }
-      if (act === 1 && devil?.whispered && Math.random() < 0.22) {
+      if (act === 1 && news?.arrived && Math.random() < 0.22) {
         const t = pick(ties);
         if (t && !t.cut) {
           const a = people[t.a], b = people[t.b];
@@ -444,23 +439,6 @@
       [0, 1, 2].forEach((k) => ctx.fillRect(x - w / 2 + 4, y - h / 2 + 12 + k * 5, (w - 8) * (k === 2 ? 0.6 : 1), 2.2));
     }
 
-    function drawDevil(d) {   // the troll: dark clothes, red face, horns, a pointed tail
-      const { x, y, s } = d, w = 2.05 * s, top = y + 1.45 * s, bot = y + 3.4 * s;
-      ctx.globalAlpha = 1;
-      ctx.strokeStyle = "#7a1f1f"; ctx.lineWidth = 1.4;
-      ctx.beginPath(); ctx.moveTo(x + w * 0.8, bot - 2); ctx.quadraticCurveTo(x + w * 1.9, bot, x + w * 1.6, top + s * 0.4); ctx.stroke();
-      ctx.fillStyle = "#7a1f1f"; ctx.beginPath(); ctx.moveTo(x + w * 1.6, top); ctx.lineTo(x + w * 1.35, top + s * 0.9); ctx.lineTo(x + w * 1.9, top + s * 0.7); ctx.fill();
-      ctx.fillStyle = "#3b2350";
-      ctx.beginPath(); ctx.moveTo(x - w, bot); ctx.lineTo(x - w, top + s);
-      ctx.quadraticCurveTo(x - w, top, x, top); ctx.quadraticCurveTo(x + w, top, x + w, top + s);
-      ctx.lineTo(x + w, bot); ctx.closePath(); ctx.fill();
-      ctx.fillStyle = "#7a1f1f";
-      [-1, 1].forEach((k) => { ctx.beginPath(); ctx.moveTo(x + k * s * 0.35, y - s * 0.75); ctx.lineTo(x + k * s * 0.95, y - s * 1.75);
-        ctx.lineTo(x + k * s * 0.85, y - s * 0.45); ctx.fill(); });
-      ctx.fillStyle = "#d9534f"; ctx.beginPath(); ctx.arc(x, y, s, 0, 6.283); ctx.fill();
-      ctx.fillStyle = "#3b1010"; ctx.beginPath(); ctx.arc(x - s * 0.35, y - s * 0.1, s * 0.16, 0, 6.283); ctx.arc(x + s * 0.35, y - s * 0.1, s * 0.16, 0, 6.283); ctx.fill();
-    }
-
     function drawPerson(p) {
       if (p.bot) return drawRobot(p);
       const { x, y, s } = p, w = 2.05 * s, top = y + 1.45 * s, bot = y + 3.4 * s;
@@ -510,14 +488,8 @@
       ctx.globalAlpha = 1; ctx.textAlign = "center"; ctx.textBaseline = "middle";
       ctx.font = "15px system-ui, 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif";
       shots.forEach((sh) => ctx.fillText("🔥", sh.x, sh.y));
-      if (devil) {
-        drawDevil(devil);
-        if (!devil.whispered) drawCard(devil.x + 30, devil.y + devil.s * 1.4, 1);
-        else if (clock - devil.handed < 2.5) {   // the story now sits with the person who got it
-          const p = devil.target; drawCard(p.x - 34, p.y + p.s * 1.2, Math.max(0, 1 - (clock - devil.handed) / 2.5));
-        }
-      }
-      for (const p of [...people, ...mods, ...(devil ? [devil] : [])]) if (p.mood && p.act > 0.08) drawBubble(p);
+      if (news) drawCard(news.x, news.y, news.arrived ? Math.max(0, 1 - (clock - news.arrived) / 3) : 1);
+      for (const p of [...people, ...mods]) if (p.mood && p.act > 0.08) drawBubble(p);
       ctx.globalAlpha = 1;
     }
 
