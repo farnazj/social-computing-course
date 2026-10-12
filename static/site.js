@@ -71,7 +71,7 @@
   }
 
   // ───── Hero: one network, and a story that plays out in it ─────
-  // People talk; a troll whispers that the earth is flat and it spreads; people take sides, argue, cut ties,
+  // People talk; a troll hands someone a misleading news story and it spreads; people take sides, argue, cut ties,
   // split into two camps; a flame war breaks out across the gap until moderators
   // step in; the camps go quiet; then someone reaches across and the network
   // slowly comes back together, and a couple of AI bots join. Then it repeats.
@@ -83,7 +83,7 @@
     const HAIR = ["#2B1D14", "#5A3825", "#B98A5E", "#16161A", "#7C7C84", "#8A2F1F"];
     const ACTS = [
       { at: 0 },   // people talk, joke, and share
-      { at: 8 },   // a troll whispers misinformation; it spreads
+      { at: 8 },   // a troll hands someone a misleading news story; it spreads
       { at: 13 },  // people take sides; arguments break out
       { at: 19 },  // ties across the divide are cut
       { at: 23 },  // each side clusters with people who agree
@@ -181,7 +181,7 @@
         // sides follow where people sit, with some noise: neighbours tend to agree
         people.forEach((p) => { p.side = (g.A[0] === g.B[0] ? p.oy : p.ox) + (Math.random() - 0.5) * g.R * 0.8 < 0 ? -1 : 1; });
         const first = people.reduce((m, p) => (Math.abs(p.ox) + Math.abs(p.oy) < Math.abs(m.ox) + Math.abs(m.oy) ? p : m));
-        // a troll walks in and whispers to someone on one side: the earth is flat
+        // a troll walks in carrying a misleading news story and hands it to someone
         const believers = people.filter((p) => p.side > 0);
         const target = believers.reduce((m, p) => (Math.hypot(p.ox, p.oy) < Math.hypot(m.ox, m.oy) ? p : m), believers[0] || first);
         devil = { x: W + 30, y: target.y, vx: 0, vy: 0, s: 5.6, hx: target.x + 26, hy: target.y, target, whispered: false, mood: null, act: 0 };
@@ -256,15 +256,14 @@
         p.op += (target - p.op) * (act === 9 ? 0.012 : 0.03);
       });
 
-      // the troll whispers to one person; the claim spreads along ties.
-      // People on one side come to believe it, people on the other side doubt it.
-      const hears = (p, k = 0.9) => { p.heard = true; say(p, p.side > 0 ? "FLAT" : "🤨", k); };
+      // the troll hands the story to one person; it spreads along ties
+      const hears = (p, k = 0.9) => { p.heard = true; say(p, "📰", k); };
       if (devil) {
         devil.vx += (devil.hx - devil.x) * 0.004; devil.vy += (devil.hy - devil.y) * 0.004;
         devil.vx *= 0.88; devil.vy *= 0.88; devil.x += devil.vx; devil.y += devil.vy;
         devil.act *= 0.99; if (devil.act < 0.05) devil.mood = null;
         if (!devil.whispered && Math.hypot(devil.x - devil.hx, devil.y - devil.hy) < 6) {
-          devil.whispered = true; say(devil, "🤫"); hears(devil.target, 1);
+          devil.whispered = true; devil.handed = clock; say(devil, "😈"); hears(devil.target, 1);
         }
         if (devil.x > W + 50 && act >= 2) devil = null;
       }
@@ -284,10 +283,10 @@
           const cross = ties.filter((t) => !t.cut && people[t.a].side !== people[t.b].side);
           if (cross.length) {
             const t = pick(cross), p = people[pick([t.a, t.b])];
-            say(p, pick(p.side > 0 ? ["FLAT", "❗", "😠"] : ["🤨", "🙄", "😠"]));
+            say(p, pick(p.side > 0 ? ["📰", "❗", "😠"] : ["🤨", "🙄", "😠"]));
           }
         } else if (act === 4 || act === 7) {
-          const p = pick(people); say(p, pick(p.side > 0 ? ["FLAT", "💯", "📢"] : ["👍", "🙌", "💬"]));
+          const p = pick(people); say(p, pick(p.side > 0 ? ["📰", "💯", "📢"] : ["👍", "🙌", "💬"]));
         }
         else if (act === 5 || act === 6) {   // onlookers react to the fight
           const p = pick(people); if (!flamers.includes(p)) say(p, pick(["😬", "👀", "🍿", "😰"]));
@@ -435,6 +434,16 @@
       ctx.beginPath(); ctx.arc(x - s * 0.45, y, s * 0.28, 0, 6.283); ctx.arc(x + s * 0.45, y, s * 0.28, 0, 6.283); ctx.fill();
     }
 
+    function drawCard(x, y, alpha) {   // a news article: headline bar and a few lines of text
+      const w = 46, h = 30;
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = colors.surface; ctx.strokeStyle = colors.ink; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect?.(x - w / 2, y - h / 2, w, h, 3); ctx.fill(); ctx.globalAlpha = alpha * 0.45; ctx.stroke();
+      ctx.globalAlpha = alpha; ctx.fillStyle = colors.coral; ctx.fillRect(x - w / 2 + 4, y - h / 2 + 4, w - 8, 5);
+      ctx.fillStyle = colors.ink; ctx.globalAlpha = alpha * 0.35;
+      [0, 1, 2].forEach((k) => ctx.fillRect(x - w / 2 + 4, y - h / 2 + 12 + k * 5, (w - 8) * (k === 2 ? 0.6 : 1), 2.2));
+    }
+
     function drawDevil(d) {   // the troll: dark clothes, red face, horns, a pointed tail
       const { x, y, s } = d, w = 2.05 * s, top = y + 1.45 * s, bot = y + 3.4 * s;
       ctx.globalAlpha = 1;
@@ -486,12 +495,6 @@
       ctx.beginPath(); ctx.arc(bx, by, r, 0, 6.283); ctx.fill();
       ctx.globalAlpha = a * 0.25; ctx.stroke(); ctx.globalAlpha = a;
       ctx.beginPath(); ctx.moveTo(bx - 8, by + 8); ctx.lineTo(p.x + p.s * 0.6, p.y - p.s * 1.3); ctx.lineTo(bx - 2, by + 12); ctx.fill();
-      if (p.mood === "FLAT") {   // a flat earth: a disc with a bit of land on it, seen edge-on
-        ctx.fillStyle = "#1f5e94"; ctx.beginPath(); ctx.ellipse(bx, by + 2.2, 8.5, 3.4, 0, 0, 6.283); ctx.fill();
-        ctx.fillStyle = "#3b8fd6"; ctx.beginPath(); ctx.ellipse(bx, by, 8.5, 3.4, 0, 0, 6.283); ctx.fill();
-        ctx.fillStyle = "#4caf50"; ctx.beginPath(); ctx.ellipse(bx - 2, by - 0.3, 3.2, 1.5, 0.3, 0, 6.283); ctx.ellipse(bx + 3.5, by + 0.6, 2, 1, 0, 0, 6.283); ctx.fill();
-        return;
-      }
       ctx.font = "15px system-ui, 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif";
       ctx.textAlign = "center"; ctx.textBaseline = "middle";
       ctx.fillText(p.mood, bx, by + 1);
@@ -507,7 +510,13 @@
       ctx.globalAlpha = 1; ctx.textAlign = "center"; ctx.textBaseline = "middle";
       ctx.font = "15px system-ui, 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif";
       shots.forEach((sh) => ctx.fillText("🔥", sh.x, sh.y));
-      if (devil) drawDevil(devil);
+      if (devil) {
+        drawDevil(devil);
+        if (!devil.whispered) drawCard(devil.x + 30, devil.y + devil.s * 1.4, 1);
+        else if (clock - devil.handed < 2.5) {   // the story now sits with the person who got it
+          const p = devil.target; drawCard(p.x - 34, p.y + p.s * 1.2, Math.max(0, 1 - (clock - devil.handed) / 2.5));
+        }
+      }
       for (const p of [...people, ...mods, ...(devil ? [devil] : [])]) if (p.mood && p.act > 0.08) drawBubble(p);
       ctx.globalAlpha = 1;
     }
