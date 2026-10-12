@@ -2,119 +2,65 @@
   const NOW = () => (window.SITE && window.SITE.now ? new Date(window.SITE.now) : new Date());
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => [...el.querySelectorAll(s)];
-
-  // ───── Theme + menu ─────
   const root = document.documentElement;
-  $(".theme-btn")?.addEventListener("click", () => {
-    const dark = root.dataset.theme
-      ? root.dataset.theme === "dark"
-      : matchMedia("(prefers-color-scheme: dark)").matches;
-    root.dataset.theme = dark ? "light" : "dark";
-    try { localStorage.setItem("theme", root.dataset.theme); } catch (e) {}
-  });
+
   const menu = $(".menu-btn");
   menu?.addEventListener("click", () => {
     const open = $(".site-nav").classList.toggle("open");
     menu.setAttribute("aria-expanded", open);
   });
 
-  // ───── Time helpers ─────
-  const MIN = 6e4, HOUR = 36e5, DAY = 864e5;
-  function rel(ms) {
-    const a = Math.abs(ms);
-    if (a < HOUR) return `${Math.max(1, Math.round(a / MIN))} min`;
-    if (a < DAY) return `${Math.round(a / HOUR)} h`;
-    const d = Math.floor(a / DAY), h = Math.round((a % DAY) / HOUR);
-    return d < 3 && h ? `${d}d ${h}h` : `${Math.round(a / DAY)} days`;
-  }
   const fmt = (d, opts) => d.toLocaleString("en-US", { timeZone: "America/Detroit", ...opts });
   const fmtDay = (d) => fmt(d, { weekday: "short", month: "short", day: "numeric" });
   const fmtTime = (d) => fmt(d, { hour: "numeric", minute: "2-digit" });
+  const hhmm = (d) => fmt(d, { hour: "2-digit", minute: "2-digit", hour12: false });
   const localISODate = (d) => fmt(d, { year: "numeric", month: "2-digit", day: "2-digit" })
     .replace(/(\d+)\/(\d+)\/(\d+)/, "$3-$1-$2");
 
-  // ───── Live status pills & countdowns ─────
-  function tick() {
-    const now = NOW();
-    $$("[data-countdown]").forEach((el) => {
-      const t = new Date(el.dataset.countdown), diff = t - now;
-      el.textContent = diff > 0
-        ? `Will be posted ${fmtDay(t)}, ${fmtTime(t)}`
-        : "Will be posted shortly.";
-    });
-    $$(".pill[data-due]").forEach((el) => {
-      const t = new Date(el.dataset.due), diff = t - now;
-      el.classList.toggle("is-soon", diff > 0 && diff < 3 * DAY);
-      el.classList.toggle("is-closed", diff <= 0);
-      el.textContent = diff > 0 ? `Due in ${rel(diff)}` : `Was due ${fmtDay(t)}`;
-    });
-    $$("[data-due-rel]").forEach((el) => {
-      const t = new Date(el.dataset.dueRel), diff = t - now;
-      el.innerHTML = `${fmtDay(t)}, ${fmtTime(t)}${diff > 0 ? "" : `<br><span class="muted tiny">Deadline passed</span>`}`;
-    });
-  }
-  tick();
-  setInterval(tick, 30000);
-
-  // ───── Schedule: mark past / this week / today ─────
+  // ───── Schedule and calendar: highlight this week and today ─────
   const today = localISODate(NOW());
   let current = null;
   $$(".week").forEach((w) => {
-    if (w.dataset.end < today) w.classList.add("is-past");
-    else if (w.dataset.start <= today && !current) { w.classList.add("is-current"); current = w; }
+    if (!current && w.dataset.start <= today && w.dataset.end >= today) { w.classList.add("is-current"); current = w; }
   });
   if (!current) current = $$(".week").find((w) => w.dataset.start > today);
-  $$(".session").forEach((s) => { if (s.dataset.date === today) s.classList.add("is-today"); });
+  $$("tr[data-date]").forEach((r) => { if (r.dataset.date === today) r.classList.add("is-today"); });
   $$(".cal-day").forEach((d) => { if (d.dataset.date === today) d.classList.add("is-today"); });
   const jump = $("#jump-today");
   if (jump) {
     if (!current) jump.hidden = true;
-    jump.addEventListener("click", () => {
-      if (current) scrollTo({ top: current.getBoundingClientRect().top + scrollY - 80, behavior: "smooth" });
+    jump.addEventListener("click", (e) => {
+      e.preventDefault();
+      current?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   }
 
-  // ───── Home: next class & upcoming ─────
-  if (window.FEED) {
-    const now = NOW();
-    const nc = $("#next-class");
+  // ───── Home: upcoming class and deadlines ─────
+  const up = $("#upcoming");
+  if (up && window.FEED) {
+    const now = NOW(), items = [];
     const next = FEED.sessions.find((s) => s.kind !== "holiday" && new Date(s.end) > now);
-    if (nc) {
-      if (next) {
-        const d = new Date(next.start);
-        const isToday = next.date === today;
-        nc.innerHTML = `<p class="kicker">${isToday ? "Today" : "Next class"}</p>
-          <h3>${next.title}</h3>
-          <div class="when">${fmtDay(d)}</div>
-          ${next.blurb ? `<p>${next.blurb}</p>` : ""}`;
-      } else {
-        nc.innerHTML = `<p class="kicker">Next class</p><p class="muted">Classes have ended for the semester.</p>`;
-      }
-    }
-    const nd = $("#next-due");
-    if (nd) {
-      const evs = [];
-      FEED.items.forEach((i) => {
-        if (i.due) evs.push({ at: new Date(i.due), verb: "Due", i });
-        if (!i.url) evs.push({ at: new Date(i.release), verb: "Out", i });
-      });
-      const up = evs.filter((e) => e.at > now).sort((a, b) => a.at - b.at).slice(0, 4);
-      nd.innerHTML = `<p class="kicker">Coming up</p>` + (up.length
-        ? `<ul class="due-list">${up.map((e) => {
-            const rest = e.i.title.split(": ").slice(-1)[0];
-            const name = rest.toLowerCase().includes(e.i.short.toLowerCase()) ? `<b>${rest}</b>` : `<b>${e.i.short}</b> ${rest}`;
-            const tag = `<span class="ev-type" style="background:color-mix(in srgb, var(--${e.verb === "Due" ? "coral" : "teal"}) 18%, transparent);color:var(--${e.verb === "Due" ? "coral" : "teal"})">${e.verb}</span>`;
-            const label = e.i.url && e.verb === "Due" ? `<a href="${e.i.url}">${name}</a>` : `<span class="t">${name}</span>`;
-            return `<li>${tag}${label}<span class="rel">${fmtDay(e.at)}</span></li>`;
-          }).join("")}</ul>`
-        : `<p class="muted">No upcoming deadlines.</p>`);
-    }
+    if (next) items.push(`Next class: ${fmtDay(new Date(next.start))}, ${next.title}`);
+    const evs = [];
+    FEED.items.forEach((i) => {
+      if (i.due) evs.push({ at: new Date(i.due), text: "due", i });
+      if (i.exam) evs.push({ at: new Date(i.exam), text: "in class", i });
+      else if (!i.url) evs.push({ at: new Date(i.release), text: "posted", i });
+    });
+    evs.filter((e) => e.at > now).sort((a, b) => a.at - b.at).slice(0, 4).forEach((e) => {
+      const name = e.i.url ? `<a href="${e.i.url}">${e.i.name}</a>` : e.i.name;
+      const time = e.text === "due" && hhmm(e.at) !== FEED.dueTime ? `, ${fmtTime(e.at)}` : "";
+      items.push(`${fmtDay(e.at)}${time}: ${name} ${e.text}`);
+    });
+    if (!next) items.push("Classes have ended for the semester.");
+    up.innerHTML = items.map((x) => `<li>${x}</li>`).join("");
   }
 
   // ───── Hero: one network, and a story that plays out in it ─────
   // People talk; a divisive story spreads; they take sides, argue, cut ties,
-  // split into two camps that stop hearing each other; then someone reaches
-  // across and the network slowly comes back together. Then it repeats.
+  // split into two camps; a flame war breaks out across the gap until moderators
+  // step in; the camps go quiet; then someone reaches across and the network
+  // slowly comes back together. Then it repeats.
   const cv = $("#net");
   if (cv) {
     const ctx = cv.getContext("2d");
@@ -127,29 +73,30 @@
       { at: 13 },  // people take sides; arguments break out
       { at: 19 },  // ties across the divide are cut
       { at: 23 },  // each side clusters with people who agree
-      { at: 31 },  // the two groups stop hearing from each other
-      { at: 37 },  // someone reaches across
-      { at: 42 },  // the network slowly comes back together
+      { at: 28 },  // a flame war breaks out across the gap
+      { at: 34 },  // moderators step in
+      { at: 40 },  // the two groups stop hearing from each other
+      { at: 44 },  // someone reaches across
+      { at: 49 },  // the network slowly comes back together
     ];
-    const LOOP = 52;
+    const LOOP = 60;
     const pick = (a) => a[(Math.random() * a.length) | 0];
     const hex = (c) => { c = c.trim().replace("#", ""); if (c.length === 3) c = [...c].map((x) => x + x).join("");
       const n = parseInt(c, 16); return isNaN(n) ? [120, 120, 120] : [n >> 16, (n >> 8) & 255, n & 255]; };
     const mix = (a, b, t) => `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(",")})`;
-    let W, H, DPR, people = [], ties = [], bits = [], mouse = null, colors, clock = 0, last = null, act = -1, news = null, bridger = null;
+    let W, H, DPR, people = [], ties = [], bits = [], mouse = null, colors, clock = 0, last = null, act = -1, news = null, bridger = null, flamers = [], shots = [], mods = [];
 
     const readColors = () => {
       const cs = getComputedStyle(root), v = (n) => cs.getPropertyValue(n).trim();
       colors = { neutral: [v("--teal"), v("--violet"), v("--maize"), v("--muted")].map(hex),
-        A: hex(v("--c-individual")), B: hex(v("--coral")), coral: v("--coral"), maize: v("--maize"),
+        A: hex(v("--c-individual")), B: hex(v("--coral")), coral: v("--coral"), maize: v("--maize"), teal: v("--teal"),
         ink: v("--ink"), surface: v("--surface") };
     };
-    const geo = () => {
-      const wide = W > 760;
-      return wide
-        ? { c: [0.74 * W, 0.5 * H], R: Math.min(W * 0.2, H * 0.36), A: [0.635 * W, 0.5 * H], B: [0.875 * W, 0.5 * H], r2: Math.min(W * 0.075, H * 0.28) }
-        : { c: [0.6 * W, 0.55 * H], R: Math.min(W * 0.36, H * 0.3), A: [0.32 * W, 0.62 * H], B: [0.86 * W, 0.4 * H], r2: W * 0.15 };
-    };
+    const geo = () => ({
+      c: [0.5 * W, 0.53 * H], R: Math.min(W * 0.3, H * 0.44),
+      A: [0.24 * W, 0.55 * H], B: [0.76 * W, 0.55 * H], r2: Math.min(W * 0.13, H * 0.34),
+      sx: W > 600 ? Math.min(2.2, (W * 0.42) / Math.min(W * 0.3, H * 0.44)) : 1,   // stretch the crowd to fill a wide banner
+    });
     const tieKey = (a, b) => (a < b ? a + "-" + b : b + "-" + a);
     const hasTie = (a, b) => ties.some((t) => !t.cut && tieKey(t.a, t.b) === tieKey(a, b));
     const addTie = (a, b, now) => { if (a !== b && !hasTie(a, b)) ties.push({ a, b, born: now, cut: null }); };
@@ -160,12 +107,12 @@
       W = r.width; H = r.height;
       cv.width = W * DPR; cv.height = H * DPR;
       ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-      const g = geo(), count = Math.round(Math.min(40, Math.max(22, (W * H) / 26000)));
+      const g = geo(), count = Math.round(Math.min(34, Math.max(18, W / 32)));
       people = Array.from({ length: count }, (_, i) => {
         const a = Math.random() * 6.283, d = Math.sqrt(Math.random()) * g.R;
-        const x = g.c[0] + Math.cos(a) * d, y = g.c[1] + Math.sin(a) * d * 0.85;
+        const x = g.c[0] + Math.cos(a) * d * g.sx, y = g.c[1] + Math.sin(a) * d * 0.85;
         return { i, x, y, vx: 0, vy: 0, ox: x - g.c[0], oy: y - g.c[1], hx: x, hy: y,
-          s: 4.6 + Math.random() * 2.6, ph: Math.random() * 6.283, skin: pick(SKIN), hair: pick(HAIR),
+          s: 4 + Math.random() * 2, ph: Math.random() * 6.283, skin: pick(SKIN), hair: pick(HAIR),
           style: (Math.random() * 4) | 0, shirt: pick(colors.neutral), side: 0, op: 0, heard: false, mood: null, act: 0 };
       });
       buildTies();
@@ -197,7 +144,7 @@
       const g = geo();
       if (n === 0) {
         people.forEach((p) => { p.side = 0; p.heard = false; p.hx = g.c[0] + p.ox; p.hy = g.c[1] + p.oy; });
-        bridger = null; news = null;
+        bridger = null; news = null; flamers = []; shots = []; mods = [];
       }
       if (n === 1) {
         // sides follow where people sit, with some noise: neighbours tend to agree
@@ -212,7 +159,7 @@
       if (n === 4) {
         people.forEach((p) => {
           const c = p.side < 0 ? g.A : g.B;
-          p.hx = c[0] + p.ox * (g.r2 / g.R); p.hy = c[1] + p.oy * (g.r2 / g.R);
+          p.hx = c[0] + (p.ox / g.sx) * (g.r2 / g.R) * 1.25; p.hy = c[1] + p.oy * (g.r2 / g.R);
         });
         // echo chambers: new ties among people who agree
         people.forEach((p) => {
@@ -220,13 +167,36 @@
           if (Math.random() < 0.7) addTie(p.i, pick(same).i, clock + Math.random() * 3);
         });
       }
+      if (n === 5) {
+        // the people at each camp's edge step toward the gap and start hurling insults
+        const gapX = (g.A[0] + g.B[0]) / 2;
+        const edge = (side) => people.filter((p) => p.side === side)
+          .sort((a, b) => Math.abs(a.hx - gapX) - Math.abs(b.hx - gapX)).slice(0, 3);
+        flamers = [...edge(-1), ...edge(1)];
+        flamers.forEach((p) => { p.home0 = [p.hx, p.hy]; p.hx += (gapX - p.hx) * 0.35; say(p, "🤬"); });
+      }
       if (n === 6) {
+        // two moderators walk into the gap
+        const gapX = (g.A[0] + g.B[0]) / 2;
+        mods = [-1, 1].map((d, k) => ({ x: gapX + d * 10, y: d < 0 ? -40 : H + 40, vx: 0, vy: 0, s: 5.6,
+          hx: gapX, hy: g.c[1] + d * H * 0.2, ph: k * 2, skin: pick(SKIN), hair: pick(HAIR), style: k ? 1 : 0,
+          shirt: hex(colors.teal), mood: null, act: 0, op: 0, mod: true }));
+        mods.forEach((m) => say(m, "🛡️"));
+      }
+      if (n === 7) {
+        // the flamers are warned and go back to their own side; moderators leave
+        flamers.forEach((p) => { if (p.home0) [p.hx, p.hy] = p.home0; });
+        flamers = []; shots = [];
+        mods.forEach((m) => { m.hy = m.hy < H / 2 ? -60 : H + 60; });
+      }
+      if (n === 8) {
         const g2 = geo();
         const As = people.filter((p) => p.side < 0);
         bridger = As.reduce((m, p) => (p.hx > m.hx ? p : m), As[0]);
         if (bridger) { bridger.hx = (g2.A[0] + g2.B[0]) / 2; bridger.hy = (g2.A[1] + g2.B[1]) / 2; say(bridger, "👋"); }
       }
-      if (n === 7) {
+      if (n === 9) {
+        mods = [];
         people.forEach((p) => { p.hx = g.c[0] + p.ox; p.hy = g.c[1] + p.oy; });
         if (bridger) {
           const Bs = people.filter((p) => p.side > 0).sort(() => Math.random() - 0.5);
@@ -247,8 +217,8 @@
 
       // opinions: strengthen while divided, fade once people reconnect
       people.forEach((p) => {
-        const target = p.heard && act >= 1 && act <= 6 ? p.side : 0;
-        p.op += (target - p.op) * (act === 7 ? 0.012 : 0.03);
+        const target = p.heard && act >= 1 && act <= 8 ? p.side : 0;
+        p.op += (target - p.op) * (act === 9 ? 0.012 : 0.03);
       });
 
       // the story spreads person to person along ties
@@ -266,19 +236,56 @@
         }
         if (act >= 2) news = null;
       }
-      if (act >= 2 && act <= 5) people.forEach((p) => { p.heard = true; });
+      if (act >= 2 && act <= 7) people.forEach((p) => { p.heard = true; });
 
       // chatter appropriate to the moment
-      const chance = [0.04, 0.0, 0.07, 0.05, 0.05, 0.008, 0.01, 0.04][act];
+      const chance = [0.04, 0.0, 0.07, 0.05, 0.05, 0.025, 0.02, 0.008, 0.01, 0.04][act];
       if (Math.random() < chance) {
         if (act === 2 || act === 3) {
           const cross = ties.filter((t) => !t.cut && people[t.a].side !== people[t.b].side);
           if (cross.length) { const t = pick(cross); say(people[pick([t.a, t.b])], pick(["😠", "🙄", "⚡", "❗"])); }
-        } else if (act === 4 || act === 5) say(pick(people), pick(["👍", "💯", "📢", "🙌"]));
-        else if (act === 7) say(pick(people), pick(["🤝", "💬", "🙂", "❤️"]));
+        } else if (act === 4 || act === 7) say(pick(people), pick(["👍", "💯", "📢", "🙌"]));
+        else if (act === 5 || act === 6) {   // onlookers react to the fight
+          const p = pick(people); if (!flamers.includes(p)) say(p, pick(["😬", "👀", "🍿", "😰"]));
+        }
+        else if (act === 9) say(pick(people), pick(["🤝", "💬", "🙂", "❤️"]));
         else say(pick(people), pick(["💬", "😂", "❤️", "👍", "👀"]));
       }
-      if (act === 6 && bridger && Math.random() < 0.02) say(bridger, pick(["👋", "🤝", "💬"]));
+      if (act === 8 && bridger && Math.random() < 0.02) say(bridger, pick(["👋", "🤝", "💬"]));
+
+      // flame war: flamers throw 🔥 at someone on the other side; once moderators arrive, they block it
+      if (flamers.length && (act === 5 || act === 6) && Math.random() < (act === 5 ? 0.09 : 0.05)) {
+        const from = pick(flamers), others = flamers.filter((q) => q.side !== from.side);
+        if (others.length) {
+          const to = pick(others);
+          shots.push({ x: from.x, y: from.y - from.s, from, to, t: 0, dur: 0.9 + Math.random() * 0.4,
+            sx: from.x, sy: from.y - from.s, arc: 18 + Math.random() * 24 });
+        }
+      }
+      if (act === 6 && Math.random() < 0.03 && flamers.length) say(pick(flamers), "🚫");
+      shots.forEach((sh) => {
+        sh.t += dt / sh.dur;
+        const k = Math.min(1, sh.t), tx = sh.to.x, ty = sh.to.y - sh.to.s;
+        sh.x = sh.sx + (tx - sh.sx) * k; sh.y = sh.sy + (ty - sh.sy) * k - Math.sin(k * Math.PI) * sh.arc;
+        for (const m of mods) {
+          if (m.y > 0 && m.y < H && Math.hypot(sh.x - m.x, sh.y - (m.y + m.s)) < 26) {
+            sh.done = true; say(m, pick(["✋", "🛡️", "⚖️"]));
+            for (let i = 0; i < 6; i++) { const o = Math.random() * 6.283; bits.push({ kind: "spark", x: sh.x, y: sh.y, vx: Math.cos(o) * 2, vy: Math.sin(o) * 2 - 1, rot: 0, spin: 0, r: 1.2, hot: true, life: 0.4, max: 0.4 }); }
+            break;
+          }
+        }
+        if (!sh.done && k >= 1) {
+          sh.done = true; say(sh.to, pick(["🤬", "😡", "💢"]));
+          for (let i = 0; i < 8; i++) { const o = Math.random() * 6.283; bits.push({ kind: "spark", x: tx, y: ty, vx: Math.cos(o) * 2.4, vy: Math.sin(o) * 2.4 - 1, rot: 0, spin: 0, r: 1.4, hot: Math.random() < 0.6, life: 0.45, max: 0.45 }); }
+        }
+      });
+      shots = shots.filter((sh) => !sh.done);
+      for (const m of mods) {
+        m.vx += (m.hx - m.x) * 0.002; m.vy += (m.hy - m.y) * 0.002;
+        m.vx *= 0.9; m.vy *= 0.9; m.x += m.vx; m.y += m.vy;
+        m.act *= 0.99; if (m.act < 0.05) m.mood = null;
+        if (act === 6 && Math.random() < 0.006) say(m, pick(["🛡️", "⚖️", "✋"]));
+      }
 
       for (const p of people) {
         p.vx += (p.hx - p.x) * 0.0016 + Math.cos(clock * 0.6 + p.ph) * 0.012;
@@ -372,7 +379,7 @@
     function drawPerson(p) {
       const { x, y, s } = p, w = 2.05 * s, top = y + 1.45 * s, bot = y + 3.4 * s;
       const side = p.op < 0 ? colors.A : colors.B;
-      ctx.globalAlpha = act === 5 ? 0.8 : 0.96;
+      ctx.globalAlpha = act === 7 ? 0.8 : 0.96;
       ctx.fillStyle = mix(p.shirt, side, Math.min(1, Math.abs(p.op)) * 0.9);
       ctx.beginPath(); ctx.moveTo(x - w, bot); ctx.lineTo(x - w, top + s);
       ctx.quadraticCurveTo(x - w, top, x, top); ctx.quadraticCurveTo(x + w, top, x + w, top + s);
@@ -385,6 +392,14 @@
         ctx.quadraticCurveTo(x + s * 0.2, y - s * 0.55, x - s, y + s * 0.05); ctx.fill();
         if (p.style === 1) { ctx.beginPath(); ctx.arc(x + s * 0.15, y - s * 1.05, s * 0.42, 0, 6.283); ctx.fill(); }
       }
+    }
+
+    function drawBadge(m) {   // a small shield on the moderator's chest
+      const x = m.x, y = m.y + m.s * 2.35, w = m.s * 0.75;
+      ctx.globalAlpha = 1; ctx.fillStyle = "#fff"; ctx.strokeStyle = colors.ink; ctx.lineWidth = 0.8;
+      ctx.beginPath(); ctx.moveTo(x, y - w); ctx.lineTo(x + w, y - w * 0.6); ctx.lineTo(x + w * 0.8, y + w * 0.3);
+      ctx.lineTo(x, y + w); ctx.lineTo(x - w * 0.8, y + w * 0.3); ctx.lineTo(x - w, y - w * 0.6); ctx.closePath();
+      ctx.fill(); ctx.stroke();
     }
 
     function drawBubble(p) {
@@ -415,8 +430,12 @@
       ties.forEach(drawTie);
       ctx.lineWidth = 1;
       [...people].sort((a, b) => a.y - b.y).forEach(drawPerson);
+      mods.forEach((m) => { drawPerson(m); drawBadge(m); });
       drawBits();
-      for (const p of people) if (p.mood && p.act > 0.08) drawBubble(p);
+      ctx.globalAlpha = 1; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.font = "15px system-ui, 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif";
+      shots.forEach((sh) => ctx.fillText("🔥", sh.x, sh.y));
+      for (const p of [...people, ...mods]) if (p.mood && p.act > 0.08) drawBubble(p);
       drawNews();
       ctx.globalAlpha = 1;
     }
