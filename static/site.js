@@ -71,10 +71,10 @@
   }
 
   // ───── Hero: one network, and a story that plays out in it ─────
-  // People talk; a divisive story spreads; they take sides, argue, cut ties,
+  // People talk; a troll whispers that the earth is flat and it spreads; people take sides, argue, cut ties,
   // split into two camps; a flame war breaks out across the gap until moderators
   // step in; the camps go quiet; then someone reaches across and the network
-  // slowly comes back together. Then it repeats.
+  // slowly comes back together, and a couple of AI bots join. Then it repeats.
   const cv = $("#net");
   if (cv) {
     const ctx = cv.getContext("2d");
@@ -83,7 +83,7 @@
     const HAIR = ["#2B1D14", "#5A3825", "#B98A5E", "#16161A", "#7C7C84", "#8A2F1F"];
     const ACTS = [
       { at: 0 },   // people talk, joke, and share
-      { at: 8 },   // a divisive news story spreads
+      { at: 8 },   // a troll whispers misinformation; it spreads
       { at: 13 },  // people take sides; arguments break out
       { at: 19 },  // ties across the divide are cut
       { at: 23 },  // each side clusters with people who agree
@@ -98,7 +98,7 @@
     const hex = (c) => { c = c.trim().replace("#", ""); if (c.length === 3) c = [...c].map((x) => x + x).join("");
       const n = parseInt(c, 16); return isNaN(n) ? [120, 120, 120] : [n >> 16, (n >> 8) & 255, n & 255]; };
     const mix = (a, b, t) => `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(",")})`;
-    let W, H, DPR, people = [], ties = [], bits = [], mouse = null, colors, clock = 0, last = null, act = -1, news = null, bridger = null, flamers = [], shots = [], mods = [];
+    let W, H, DPR, people = [], ties = [], bits = [], mouse = null, colors, clock = 0, last = null, act = -1, devil = null, bridger = null, flamers = [], shots = [], mods = [], botsAdded = false;
 
     const readColors = () => {
       const cs = getComputedStyle(root), v = (n) => cs.getPropertyValue(n).trim();
@@ -153,18 +153,38 @@
     }
     const say = (p, mood, k = 1) => { p.mood = mood; p.act = k; };
 
+    // AI bots: a couple drop into the network at the end of each loop and stay (up to six)
+    function addBots(n) {
+      const g = geo();
+      for (let k = 0; k < n && people.filter((p) => p.bot).length < 6; k++) {
+        const anchor = pick(people.filter((p) => !p.bot));
+        const hx = Math.max(20, Math.min(W - 20, anchor.hx + (Math.random() - 0.5) * 70));
+        const hy = Math.max(30, Math.min(H - 30, anchor.hy + (Math.random() - 0.5) * 50));
+        const b = { i: people.length, bot: true, x: hx, y: -30, vx: 0, vy: 0, hx, hy, ox: hx - g.c[0], oy: hy - g.c[1],
+          s: 5.6, ph: Math.random() * 6.283, shirt: hex("#8a94a6"), side: 0, op: 0, heard: false, mood: null, act: 0 };
+        people.push(b);
+        people.filter((p) => p !== b && !p.bot)
+          .sort((p1, p2) => Math.hypot(p1.hx - hx, p1.hy - hy) - Math.hypot(p2.hx - hx, p2.hy - hy))
+          .slice(0, 2).forEach((p, j) => addTie(b.i, p.i, clock + 1 + j * 0.4));
+        say(b, "🤖");
+      }
+    }
+
     // ── what happens when each act begins ──
     function enterAct(n) {
       const g = geo();
       if (n === 0) {
         people.forEach((p) => { p.side = 0; p.heard = false; p.hx = g.c[0] + p.ox; p.hy = g.c[1] + p.oy; });
-        bridger = null; news = null; flamers = []; shots = []; mods = [];
+        bridger = null; devil = null; flamers = []; shots = []; mods = []; botsAdded = false;
       }
       if (n === 1) {
         // sides follow where people sit, with some noise: neighbours tend to agree
         people.forEach((p) => { p.side = (g.A[0] === g.B[0] ? p.oy : p.ox) + (Math.random() - 0.5) * g.R * 0.8 < 0 ? -1 : 1; });
         const first = people.reduce((m, p) => (Math.abs(p.ox) + Math.abs(p.oy) < Math.abs(m.ox) + Math.abs(m.oy) ? p : m));
-        news = { x: W + 40, y: first.y - 80, tx: first.x + 18, ty: first.y - 46, who: first, t: clock };
+        // a troll walks in and whispers to someone on one side: the earth is flat
+        const believers = people.filter((p) => p.side > 0);
+        const target = believers.reduce((m, p) => (Math.hypot(p.ox, p.oy) < Math.hypot(m.ox, m.oy) ? p : m), believers[0] || first);
+        devil = { x: W + 30, y: target.y, vx: 0, vy: 0, s: 5.6, hx: target.x + 26, hy: target.y, target, whispered: false, mood: null, act: 0 };
       }
       if (n === 3) {
         let k = 0;
@@ -181,6 +201,7 @@
           if (Math.random() < 0.7) addTie(p.i, pick(same).i, clock + Math.random() * 3);
         });
       }
+      if (n === 2 && devil) { devil.hx = W + 60; }   // the troll slips away once the damage is done
       if (n === 5) {
         // the people at each camp's edge step toward the gap and start hurling insults
         const gapX = (g.A[0] + g.B[0]) / 2;
@@ -235,20 +256,24 @@
         p.op += (target - p.op) * (act === 9 ? 0.012 : 0.03);
       });
 
-      // the story spreads person to person along ties
-      if (news) {
-        const k = Math.min(1, (clock - news.t) / 1.2);
-        news.x += (news.tx - news.x) * 0.08; news.y += (news.ty - news.y) * 0.08;
-        if (k >= 1 && !news.who.heard) { news.who.heard = true; say(news.who, "📰"); }
-        if (act >= 1 && act <= 2 && Math.random() < 0.25) {
-          const t = pick(ties);
-          if (t && !t.cut) {
-            const a = people[t.a], b = people[t.b];
-            if (a.heard && !b.heard) { b.heard = true; say(b, "📰", 0.9); }
-            else if (b.heard && !a.heard) { a.heard = true; say(a, "📰", 0.9); }
-          }
+      // the troll whispers to one person; the claim spreads along ties.
+      // People on one side come to believe it, people on the other side doubt it.
+      const hears = (p, k = 0.9) => { p.heard = true; say(p, p.side > 0 ? "FLAT" : "🤨", k); };
+      if (devil) {
+        devil.vx += (devil.hx - devil.x) * 0.004; devil.vy += (devil.hy - devil.y) * 0.004;
+        devil.vx *= 0.88; devil.vy *= 0.88; devil.x += devil.vx; devil.y += devil.vy;
+        devil.act *= 0.99; if (devil.act < 0.05) devil.mood = null;
+        if (!devil.whispered && Math.hypot(devil.x - devil.hx, devil.y - devil.hy) < 6) {
+          devil.whispered = true; say(devil, "🤫"); hears(devil.target, 1);
         }
-        if (act >= 2) news = null;
+        if (devil.x > W + 50 && act >= 2) devil = null;
+      }
+      if (act === 1 && devil?.whispered && Math.random() < 0.22) {
+        const t = pick(ties);
+        if (t && !t.cut) {
+          const a = people[t.a], b = people[t.b];
+          if (a.heard && !b.heard) hears(b); else if (b.heard && !a.heard) hears(a);
+        }
       }
       if (act >= 2 && act <= 7) people.forEach((p) => { p.heard = true; });
 
@@ -257,14 +282,20 @@
       if (Math.random() < chance) {
         if (act === 2 || act === 3) {
           const cross = ties.filter((t) => !t.cut && people[t.a].side !== people[t.b].side);
-          if (cross.length) { const t = pick(cross); say(people[pick([t.a, t.b])], pick(["😠", "🙄", "⚡", "❗"])); }
-        } else if (act === 4 || act === 7) say(pick(people), pick(["👍", "💯", "📢", "🙌"]));
+          if (cross.length) {
+            const t = pick(cross), p = people[pick([t.a, t.b])];
+            say(p, pick(p.side > 0 ? ["FLAT", "❗", "😠"] : ["🤨", "🙄", "😠"]));
+          }
+        } else if (act === 4 || act === 7) {
+          const p = pick(people); say(p, pick(p.side > 0 ? ["FLAT", "💯", "📢"] : ["👍", "🙌", "💬"]));
+        }
         else if (act === 5 || act === 6) {   // onlookers react to the fight
           const p = pick(people); if (!flamers.includes(p)) say(p, pick(["😬", "👀", "🍿", "😰"]));
         }
         else if (act === 9) say(pick(people), pick(["🤝", "💬", "🙂", "❤️"]));
         else say(pick(people), pick(["💬", "😂", "❤️", "👍", "👀"]));
       }
+      if (act === 9 && !botsAdded && clock > ACTS[9].at + 2) { botsAdded = true; addBots(2); }
       if (act === 8 && bridger && Math.random() < 0.02) say(bridger, pick(["👋", "🤝", "💬"]));
 
       // flame war: flamers throw 🔥 at someone on the other side; once moderators arrive, they block it
@@ -390,7 +421,39 @@
       ctx.lineCap = "butt";
     }
 
+    function drawRobot(p) {
+      const { x, y, s } = p, side = p.op < 0 ? colors.A : colors.B;
+      ctx.globalAlpha = 0.96;
+      ctx.fillStyle = mix(p.shirt, side, Math.min(1, Math.abs(p.op)) * 0.9);
+      ctx.beginPath(); ctx.roundRect?.(x - 1.9 * s, y + 1.4 * s, 3.8 * s, 2.1 * s, s * 0.4); ctx.fill();
+      ctx.strokeStyle = colors.ink; ctx.lineWidth = 1; ctx.globalAlpha = 0.7;
+      ctx.beginPath(); ctx.moveTo(x, y - s * 1.05); ctx.lineTo(x, y - s * 1.7); ctx.stroke();
+      ctx.globalAlpha = 1; ctx.fillStyle = colors.maize; ctx.beginPath(); ctx.arc(x, y - s * 1.85, s * 0.32, 0, 6.283); ctx.fill();
+      ctx.fillStyle = "#d5dbe3"; ctx.strokeStyle = colors.ink; ctx.lineWidth = 0.8;
+      ctx.beginPath(); ctx.roundRect?.(x - s * 1.15, y - s * 1.05, s * 2.3, s * 2.1, s * 0.45); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = colors.teal;
+      ctx.beginPath(); ctx.arc(x - s * 0.45, y, s * 0.28, 0, 6.283); ctx.arc(x + s * 0.45, y, s * 0.28, 0, 6.283); ctx.fill();
+    }
+
+    function drawDevil(d) {   // the troll: dark clothes, red face, horns, a pointed tail
+      const { x, y, s } = d, w = 2.05 * s, top = y + 1.45 * s, bot = y + 3.4 * s;
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = "#7a1f1f"; ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.moveTo(x + w * 0.8, bot - 2); ctx.quadraticCurveTo(x + w * 1.9, bot, x + w * 1.6, top + s * 0.4); ctx.stroke();
+      ctx.fillStyle = "#7a1f1f"; ctx.beginPath(); ctx.moveTo(x + w * 1.6, top); ctx.lineTo(x + w * 1.35, top + s * 0.9); ctx.lineTo(x + w * 1.9, top + s * 0.7); ctx.fill();
+      ctx.fillStyle = "#3b2350";
+      ctx.beginPath(); ctx.moveTo(x - w, bot); ctx.lineTo(x - w, top + s);
+      ctx.quadraticCurveTo(x - w, top, x, top); ctx.quadraticCurveTo(x + w, top, x + w, top + s);
+      ctx.lineTo(x + w, bot); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = "#7a1f1f";
+      [-1, 1].forEach((k) => { ctx.beginPath(); ctx.moveTo(x + k * s * 0.35, y - s * 0.75); ctx.lineTo(x + k * s * 0.95, y - s * 1.75);
+        ctx.lineTo(x + k * s * 0.85, y - s * 0.45); ctx.fill(); });
+      ctx.fillStyle = "#d9534f"; ctx.beginPath(); ctx.arc(x, y, s, 0, 6.283); ctx.fill();
+      ctx.fillStyle = "#3b1010"; ctx.beginPath(); ctx.arc(x - s * 0.35, y - s * 0.1, s * 0.16, 0, 6.283); ctx.arc(x + s * 0.35, y - s * 0.1, s * 0.16, 0, 6.283); ctx.fill();
+    }
+
     function drawPerson(p) {
+      if (p.bot) return drawRobot(p);
       const { x, y, s } = p, w = 2.05 * s, top = y + 1.45 * s, bot = y + 3.4 * s;
       const side = p.op < 0 ? colors.A : colors.B;
       ctx.globalAlpha = act === 7 ? 0.8 : 0.96;
@@ -423,20 +486,15 @@
       ctx.beginPath(); ctx.arc(bx, by, r, 0, 6.283); ctx.fill();
       ctx.globalAlpha = a * 0.25; ctx.stroke(); ctx.globalAlpha = a;
       ctx.beginPath(); ctx.moveTo(bx - 8, by + 8); ctx.lineTo(p.x + p.s * 0.6, p.y - p.s * 1.3); ctx.lineTo(bx - 2, by + 12); ctx.fill();
+      if (p.mood === "FLAT") {   // a flat earth: a disc with a bit of land on it, seen edge-on
+        ctx.fillStyle = "#1f5e94"; ctx.beginPath(); ctx.ellipse(bx, by + 2.2, 8.5, 3.4, 0, 0, 6.283); ctx.fill();
+        ctx.fillStyle = "#3b8fd6"; ctx.beginPath(); ctx.ellipse(bx, by, 8.5, 3.4, 0, 0, 6.283); ctx.fill();
+        ctx.fillStyle = "#4caf50"; ctx.beginPath(); ctx.ellipse(bx - 2, by - 0.3, 3.2, 1.5, 0.3, 0, 6.283); ctx.ellipse(bx + 3.5, by + 0.6, 2, 1, 0, 0, 6.283); ctx.fill();
+        return;
+      }
       ctx.font = "15px system-ui, 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif";
       ctx.textAlign = "center"; ctx.textBaseline = "middle";
       ctx.fillText(p.mood, bx, by + 1);
-    }
-
-    function drawNews() {
-      if (!news) return;
-      const { x, y } = news, w = 54, h = 36;
-      ctx.globalAlpha = 0.97;
-      ctx.fillStyle = colors.surface; ctx.strokeStyle = colors.ink; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.roundRect?.(x - w / 2, y - h / 2, w, h, 4); ctx.fill(); ctx.globalAlpha = 0.4; ctx.stroke();
-      ctx.globalAlpha = 1; ctx.fillStyle = colors.coral; ctx.fillRect(x - w / 2 + 5, y - h / 2 + 5, w - 10, 6);
-      ctx.fillStyle = colors.ink; ctx.globalAlpha = 0.35;
-      [0, 1, 2].forEach((k) => ctx.fillRect(x - w / 2 + 5, y - h / 2 + 15 + k * 5.5, (w - 10) * (k === 2 ? 0.6 : 1), 2.4));
     }
 
     function draw() {
@@ -449,8 +507,8 @@
       ctx.globalAlpha = 1; ctx.textAlign = "center"; ctx.textBaseline = "middle";
       ctx.font = "15px system-ui, 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif";
       shots.forEach((sh) => ctx.fillText("🔥", sh.x, sh.y));
-      for (const p of [...people, ...mods]) if (p.mood && p.act > 0.08) drawBubble(p);
-      drawNews();
+      if (devil) drawDevil(devil);
+      for (const p of [...people, ...mods, ...(devil ? [devil] : [])]) if (p.mood && p.act > 0.08) drawBubble(p);
       ctx.globalAlpha = 1;
     }
 
