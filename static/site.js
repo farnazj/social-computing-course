@@ -20,11 +20,11 @@
   // ───── Schedule and calendar: highlight this week and today ─────
   const today = localISODate(NOW());
   let current = null;
-  $$(".week").forEach((w) => {
+  $$(".week[data-start]").forEach((w) => {
     if (!current && w.dataset.start <= today && w.dataset.end >= today) { w.classList.add("is-current"); current = w; }
   });
-  if (!current) current = $$(".week").find((w) => w.dataset.start > today);
-  $$("tr[data-date]").forEach((r) => { if (r.dataset.date === today) r.classList.add("is-today"); });
+  if (!current) current = $$(".week[data-start]").find((w) => w.dataset.start > today);
+  $$(".day[data-date]").forEach((r) => { if (r.dataset.date === today) r.classList.add("is-today"); });
   $$(".cal-day").forEach((d) => { if (d.dataset.date === today) d.classList.add("is-today"); });
   const jump = $("#jump-today");
   if (jump) {
@@ -38,22 +38,36 @@
   // ───── Home: upcoming class and deadlines ─────
   const up = $("#upcoming");
   if (up && window.FEED) {
-    const now = NOW(), items = [];
+    const now = NOW(), rows = [];
+    const row = (when, html) => rows.push(`<li><span class="u-date">${when}</span><span class="u-text">${html}</span></li>`);
     const next = FEED.sessions.find((s) => s.kind !== "holiday" && new Date(s.end) > now);
-    if (next) items.push(`Next class: ${fmtDay(new Date(next.start))}, ${next.title}`);
+    if (next) row(`Next class, ${fmtDay(new Date(next.start))}`, next.title);
+    else row("", "Classes have ended for the semester.");
+
+    const link = (i, label) => (i.url ? `<a href="${i.url}">${label}</a>` : label);
     const evs = [];
     FEED.items.forEach((i) => {
-      if (i.due) evs.push({ at: new Date(i.due), text: "due", i });
-      if (i.exam) evs.push({ at: new Date(i.exam), text: "in class", i });
-      else if (!i.url) evs.push({ at: new Date(i.release), text: "posted", i });
+      if (i.due) evs.push({ at: new Date(i.due), kind: "due", i });
+      if (i.exam) evs.push({ at: new Date(i.exam), kind: "exam", i });
+      else if (!i.url) evs.push({ at: new Date(i.release), kind: "posted", i });
     });
-    evs.filter((e) => e.at > now).sort((a, b) => a.at - b.at).slice(0, 4).forEach((e) => {
-      const name = e.i.url ? `<a href="${e.i.url}">${e.i.name}</a>` : e.i.name;
-      const time = e.text === "due" && hhmm(e.at) !== FEED.dueTime ? `, ${fmtTime(e.at)}` : "";
-      items.push(`${fmtDay(e.at)}${time}: ${name} ${e.text}`);
+    // group by day so several postings on one day read as one line
+    const days = new Map();
+    evs.filter((e) => e.at > now).sort((a, b) => a.at - b.at).forEach((e) => {
+      const k = fmtDay(e.at); if (!days.has(k)) days.set(k, []); days.get(k).push(e);
     });
-    if (!next) items.push("Classes have ended for the semester.");
-    up.innerHTML = items.map((x) => `<li>${x}</li>`).join("");
+    [...days].slice(0, 4).forEach(([day, list]) => {
+      const parts = [];
+      const due = list.filter((e) => e.kind === "due"), posted = list.filter((e) => e.kind === "posted");
+      due.forEach((e) => {
+        const time = hhmm(e.at) !== FEED.dueTime ? ` ${fmtTime(e.at)}` : "";
+        parts.push(`<span class="ev-due">${link(e.i, e.i.short)} due${time}</span>`);
+      });
+      list.filter((e) => e.kind === "exam").forEach((e) => parts.push(`<strong>${e.i.short}</strong> in class`));
+      if (posted.length) parts.push(`<span class="ev-out">${posted.map((e) => e.i.short).join(", ")} posted</span>`);
+      row(day, parts.join(" "));
+    });
+    up.innerHTML = rows.join("");
   }
 
   // ───── Hero: one network, and a story that plays out in it ─────
